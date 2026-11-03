@@ -192,6 +192,9 @@ A separate C++ consumer includes the public C header first, inside an outer
 template linkage problems that pre-including standard headers would mask.
 `pd` and the C++ parser read a deterministic FR02H fixture containing a Windows
 text-mode EOF byte; normalized tool output is compared with `tests/pd.expected`.
+Each target's build log shows the raw tool output in a `pd firmware fixture
+output (TARGET)` group. It is also saved as `pd.txt` in the `diagnostics-TARGET`
+artifact, alongside normalized output and the expected empty-input diagnostic.
 Empty input must fail. There are no correctness-critical caches.
 
 For the Linux x86-64 release target, install Bash, Git, tar, jq, GCC/G++ 14 or
