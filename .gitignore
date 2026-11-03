@@ -53,3 +53,11 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Local source/build/package outputs; use a temporary workspace by default.
+/work/
+/prepared/
+/dist/
+/build/
+*.tar.gz
+*.zip

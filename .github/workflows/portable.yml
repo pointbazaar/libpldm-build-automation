@@ -1,0 +1,207 @@
+name: Portable builds
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: Rebuild even a complete identity; publish a distinct revision
+        type: boolean
+        default: false
+  pull_request:
+
+permissions:
+  contents: read
+
+# One trusted run at a time, including publication and monthly status updates.
+concurrency:
+  group: portable-${{ github.event.pull_request.number || 'trusted' }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      upstream: ${{ steps.resolve.outputs.upstream }}
+      skip: ${{ steps.prepare.outputs.skip }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Resolve upstream main once
+        id: resolve
+        run: bash scripts/prepare.sh resolve
+      - name: Test automation logic
+        run: bash tests/automation.sh
+      - name: Prepare identical patched source for every target
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_REBUILD: ${{ inputs.force_rebuild || false }}
+          PUBLISH_ALLOWED: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+          UPSTREAM: ${{ steps.resolve.outputs.upstream }}
+        run: bash scripts/prepare.sh prepare "$UPSTREAM" "$RUNNER_TEMP/prepared"
+      - name: Transfer prepared inputs and release source materials
+        if: steps.prepare.outputs.skip == 'false'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: prepared
+          path: |
+            ${{ runner.temp }}/prepared/libpldm-*.tar.gz
+            ${{ runner.temp }}/prepared/build.json
+            ${{ runner.temp }}/prepared/preparation.sha256
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preparation failure summary
+        if: failure()
+        run: echo '**Preparation failed. No release will be published.** See the failing step for its stage.' >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x86_64
+            runner: windows-2025
+          - target: macos-arm64
+            runner: macos-15
+          - target: macos-x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: prepared
+          path: ${{ runner.temp }}/prepared
+      - name: Install native Windows build dependencies
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: UCRT64
+          update: true
+          cache: false
+          install: >-
+            git tar diffutils coreutils
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-jq
+      - name: Install native macOS build dependencies
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_16.4.app
+          brew install pkgconf cmake ninja jq
+          source config/recipe.env
+          pipx install --force "meson==$MESON_VERSION"
+      - name: Build, test and package on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          PREPARED: ${{ runner.temp }}/prepared
+          NATIVE_WORK: ${{ runner.temp }}/native
+        run: bash scripts/build.sh "$BUILD_TARGET" "$(cygpath -u "$PREPARED")" "$(cygpath -u "$NATIVE_WORK")"
+      - name: Build, test and package on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: bash scripts/build.sh "$BUILD_TARGET" "$RUNNER_TEMP/prepared" "$RUNNER_TEMP/native"
+      - name: Transfer tested package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: package-${{ matrix.target }}
+          path: ${{ runner.temp }}/native/dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: diagnostics-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/native/build*/meson-logs/
+            ${{ runner.temp }}/native/build*/meson-info/
+            ${{ runner.temp }}/native/consumer/build/meson-logs/
+            ${{ runner.temp }}/native/consumer/*.txt
+            ${{ runner.temp }}/native/consumer/*.normalized
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Target failure summary
+        if: failure()
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: echo "**$BUILD_TARGET failed. Publication is blocked.** See the failing step for its stage." >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs: [prepare, build]
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      needs.prepare.outputs.skip == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: prepared
+          path: ${{ runner.temp }}/prepared
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release
+      - name: Publish only a verified complete draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          FORCE_REBUILD: ${{ inputs.force_rebuild || false }}
+        run: |
+          (cd "$RUNNER_TEMP/prepared" && sha256sum -c preparation.sha256)
+          cp "$RUNNER_TEMP/prepared/"*.tar.gz "$RUNNER_TEMP/prepared/build.json" "$RUNNER_TEMP/release/"
+          bash scripts/publish.sh "$RUNNER_TEMP/release"
+      - name: Publication failure summary
+        if: failure()
+        run: echo '**Publication failed. The previous successful release remains available.** Inspect drafts and the failing step.' >> "$GITHUB_STEP_SUMMARY"
+
+  keepalive:
+    needs: prepare
+    if: >-
+      always() && !cancelled() && github.event_name != 'pull_request' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      needs.prepare.outputs.upstream != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Maintain monthly upstream check independently of builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          UPSTREAM: ${{ needs.prepare.outputs.upstream }}
+        run: bash scripts/keepalive.sh "$UPSTREAM"

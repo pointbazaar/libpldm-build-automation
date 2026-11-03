@@ -1,0 +1,77 @@
+From: libpldm portable build maintainers
+Subject: [PATCH 2/3] tests: Make transport-free builds reproducible
+
+Developed against upstream be4f63e36408921e76d868593176377de84e945e.
+
+Instance-ID storage is part of the optional requester implementation and
+transport tests include Linux timerfd/AF_MCTP headers. Build their tests
+only when transport is enabled. The weak clock wrapper is used only by
+transport, so do not build it for transport-free targets. No replacement
+clock implementation or MCTP backend is promised by these packages.
+
+Use the supplied GoogleTest source rather than finding a different system
+version. The automation pins and archives that dependency explicitly.
+diff --git a/src/environ/meson.build b/src/environ/meson.build
+index 24d6ce7..a8de7f9 100644
+--- a/src/environ/meson.build
++++ b/src/environ/meson.build
+@@ -1 +1,3 @@
+-libpldm_sources += files('time.c')
++if get_option('transport')
++    libpldm_sources += files('time.c')
++endif
+diff --git a/tests/unit/meson.build b/tests/unit/meson.build
+index 8fe6297..04f5ad4 100644
+--- a/tests/unit/meson.build
++++ b/tests/unit/meson.build
+@@ -1,35 +1,25 @@
+-gtest_dep = dependency(
+-    'gtest',
+-    main: true,
+-    disabler: true,
+-    required: false,
+-    include_type: 'system',
++# Downstream archives supply an exact GoogleTest source revision. Do not
++# substitute an unrelated system installation for that recorded dependency.
++gtest_proj = import('cmake').subproject('googletest', required: true)
++gtest_dep = declare_dependency(
++    dependencies: [
++        dependency('threads', include_type: 'system'),
++        gtest_proj.dependency('gtest', include_type: 'system'),
++        gtest_proj.dependency('gtest_main', include_type: 'system'),
++    ],
+ )
+-gmock_dep = dependency(
+-    'gmock',
+-    disabler: true,
+-    required: false,
+-    include_type: 'system',
+-)
+-if not gtest_dep.found() or not gmock_dep.found()
+-    gtest_proj = import('cmake').subproject('googletest', required: true)
+-    gtest_dep = declare_dependency(
+-        dependencies: [
+-            dependency('threads', include_type: 'system'),
+-            gtest_proj.dependency('gtest', include_type: 'system'),
+-            gtest_proj.dependency('gtest_main', include_type: 'system'),
+-        ],
+-    )
+-    gmock_dep = gtest_proj.dependency('gmock', include_type: 'system')
+-endif
++gmock_dep = gtest_proj.dependency('gmock', include_type: 'system')
+ 
+-tests = ['bcd', 'edac', 'instance-id', 'msgbuf', 'responder', 'utils']
++tests = ['bcd', 'edac', 'msgbuf', 'responder', 'utils']
++if get_option('transport')
++    tests += ['instance-id']
++endif
+ 
+ subdir('dsp')
+ 
+ # The 'test' transport APIs will never be marked stable as they are just for
+ # testing.
+-if get_option('abi').contains('testing')
++if get_option('transport') and get_option('abi').contains('testing')
+     subdir('transport')
+ endif
+ 

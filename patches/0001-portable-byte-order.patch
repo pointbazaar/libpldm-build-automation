@@ -1,0 +1,448 @@
+From: libpldm portable build maintainers
+Subject: [PATCH 1/3] environ: Preserve wire layout on Darwin and MinGW
+
+Developed against upstream be4f63e36408921e76d868593176377de84e945e.
+
+Use Apple's byte-order primitives and compiler byte swaps on little-endian
+MinGW. Route endian users through the existing public byteorder header,
+install its companion header, and propagate MinGW's required GNU bitfield
+layout to pkg-config consumers. Keep a bounded memmem fallback for Windows.
+
+The deprecated linker alias list is currently empty. Fail explicitly if
+upstream adds an alias instead of passing ELF-only --defsym to Mach-O/PE
+linkers or silently losing an old entry point in a static archive.
+diff --git a/include/libpldm/byteorder.h b/include/libpldm/byteorder.h
+index ff475b4..cc5427e 100644
+--- a/include/libpldm/byteorder.h
++++ b/include/libpldm/byteorder.h
+@@ -20,7 +20,12 @@ extern "C" {
+ #endif
+ 
+ #else
++#if defined(__APPLE__) || defined(_WIN32)
++#include <libpldm/portable-endian.h>
++#else
++#include <endian.h>
+ #include <asm/byteorder.h>
++#endif
+ 
+ #define HTOLE32(X) ((X) = htole32(X))
+ #define HTOLE16(X) ((X) = htole16(X))
+diff --git a/include/libpldm/meson.build b/include/libpldm/meson.build
+index 31ea63d..e1cc27b 100644
+--- a/include/libpldm/meson.build
++++ b/include/libpldm/meson.build
+@@ -4,6 +4,7 @@ libpldm_headers = files(
+     'bios.h',
+     'bios_table.h',
+     'byteorder.h',
++    'portable-endian.h',
+     'compiler.h',
+     'control.h',
+     'edac.h',
+diff --git a/meson.build b/meson.build
+index aa717cb..05af72c 100644
+--- a/meson.build
++++ b/meson.build
+@@ -23,6 +23,10 @@ endif
+ add_project_arguments('-D_GNU_SOURCE', language: ['c'])
+ 
+ cc = meson.get_compiler('c')
++if host_machine.system() == 'windows'
++    # MinGW's default MS bitfield layout does not match PLDM wire structs.
++    add_project_arguments('-mno-ms-bitfields', language: ['c', 'cpp'])
++endif
+ if cc.has_argument('-Wvla')
+     add_project_arguments('-Wvla', language: ['c'])
+ endif
+diff --git a/src/dsp/base.c b/src/dsp/base.c
+index 9c8476f..f24feea 100644
+--- a/src/dsp/base.c
++++ b/src/dsp/base.c
+@@ -9,7 +9,7 @@
+ #include <libpldm/base.h>
+ #include <libpldm/pldm_types.h>
+ 
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <limits.h>
+ #include <stdint.h>
+ #include <string.h>
+diff --git a/src/dsp/bios.c b/src/dsp/bios.c
+index 3f323bb..40802d4 100644
+--- a/src/dsp/bios.c
++++ b/src/dsp/bios.c
+@@ -5,7 +5,7 @@
+ #include <libpldm/bcd.h>
+ #include <libpldm/bios.h>
+ 
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <string.h>
+ 
+ LIBPLDM_ABI_STABLE
+diff --git a/src/dsp/bios_table.c b/src/dsp/bios_table.c
+index e63dda1..80ee08b 100644
+--- a/src/dsp/bios_table.c
++++ b/src/dsp/bios_table.c
+@@ -7,7 +7,7 @@
+ #include <libpldm/edac.h>
+ 
+ #include <assert.h>
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <limits.h>
+ #include <stdbool.h>
+ #include <stdint.h>
+diff --git a/src/dsp/firmware_update.c b/src/dsp/firmware_update.c
+index b1ad335..389f9c0 100644
+--- a/src/dsp/firmware_update.c
++++ b/src/dsp/firmware_update.c
+@@ -9,7 +9,7 @@
+ #include <libpldm/compiler.h>
+ #include <libpldm/firmware_update.h>
+ 
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <stdbool.h>
+ #include <string.h>
+ 
+diff --git a/src/dsp/fru.c b/src/dsp/fru.c
+index 94c759d..e6a11a5 100644
+--- a/src/dsp/fru.c
++++ b/src/dsp/fru.c
+@@ -3,7 +3,7 @@
+ #include <libpldm/fru.h>
+ 
+ #include <assert.h>
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <stdbool.h>
+ #include <stdint.h>
+ #include <string.h>
+diff --git a/src/dsp/pdr.c b/src/dsp/pdr.c
+index ca1e0ec..a172cbb 100644
+--- a/src/dsp/pdr.c
++++ b/src/dsp/pdr.c
+@@ -7,7 +7,7 @@
+ #include <libpldm/platform.h>
+ 
+ #include <assert.h>
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <limits.h>
+ #include <stddef.h>
+ #include <stdint.h>
+diff --git a/src/dsp/platform.c b/src/dsp/platform.c
+index 544ecad..5f5949e 100644
+--- a/src/dsp/platform.c
++++ b/src/dsp/platform.c
+@@ -9,7 +9,7 @@
+ #include <libpldm/platform.h>
+ #include <libpldm/pldm_types.h>
+ 
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <stdint.h>
+ #include <stdlib.h>
+ #include <string.h>
+diff --git a/src/meson.build b/src/meson.build
+index 3aa5298..25d2ece 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -20,6 +20,9 @@ subdir('environ')
+ 
+ libpldm_link_args = []
+ foreach alias : libpldm_deprecated_aliases
++    if host_machine.system() in ['darwin', 'windows']
++        error('Deprecated linker aliases need a portable implementation')
++    endif
+     libpldm_link_args += '-Wl,--defsym=@0@=@1@'.format(alias[0], alias[1])
+ endforeach
+ 
+@@ -45,6 +48,7 @@ import('pkgconfig').generate(
+     description: 'C library to work with PLDM functionality and PLDM protocol encode/decode',
+     version: meson.project_version(),
+     libraries: libpldm,
++    extra_cflags: host_machine.system() == 'windows' ? ['-mno-ms-bitfields'] : [],
+ )
+ 
+ if get_option('tests')
+diff --git a/src/msgbuf/core.h b/src/msgbuf/core.h
+index 430e3d8..9e66688 100644
+--- a/src/msgbuf/core.h
++++ b/src/msgbuf/core.h
+@@ -41,10 +41,11 @@ extern "C" {
+ 
+ #include "compiler.h"
+ #include "environ/errno.h"
++#include "environ/string.h"
+ 
+ #include <libpldm/pldm_types.h>
+ 
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <stddef.h>
+ #include <stdint.h>
+ #include <string.h>
+@@ -1177,7 +1178,8 @@ int pldm__msgbuf_span_string_utf16(const uint8_t **buf, intmax_t *remaining,
+ 			end = (char *)end + 1;
+ 		}
+ 		measured = (char *)end - (char *)*buf;
+-		end = memmem(end, *remaining - measured, &term, sizeof(term));
++		end = libpldm_memmem(end, *remaining - measured, &term,
++				     sizeof(term));
+ 	} while (end && ((uintptr_t)end & 1) != ((uintptr_t)*buf & 1));
+ 
+ 	if (!end) {
+diff --git a/src/oem/ibm/file_io.c b/src/oem/ibm/file_io.c
+index d8960fa..fd13c32 100644
+--- a/src/oem/ibm/file_io.c
++++ b/src/oem/ibm/file_io.c
+@@ -2,7 +2,7 @@
+ #include <libpldm/base.h>
+ #include <libpldm/oem/ibm/file_io.h>
+ 
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <string.h>
+ 
+ LIBPLDM_ABI_STABLE
+diff --git a/src/oem/ibm/host.c b/src/oem/ibm/host.c
+index 69e9193..c687537 100644
+--- a/src/oem/ibm/host.c
++++ b/src/oem/ibm/host.c
+@@ -2,7 +2,7 @@
+ #include <libpldm/base.h>
+ #include <libpldm/oem/ibm/host.h>
+ 
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <stdint.h>
+ #include <string.h>
+ 
+diff --git a/src/oem/meta/file_io.c b/src/oem/meta/file_io.c
+index 45b5c9e..6b2d368 100644
+--- a/src/oem/meta/file_io.c
++++ b/src/oem/meta/file_io.c
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later */
+ #include <libpldm/oem/meta/file_io.h>
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <stdio.h>
+diff --git a/tests/unit/dsp/bios.cpp b/tests/unit/dsp/bios.cpp
+index b1b16e2..75bb064 100644
+--- a/tests/unit/dsp/bios.cpp
++++ b/tests/unit/dsp/bios.cpp
+@@ -1,4 +1,4 @@
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <libpldm/base.h>
+ #include <libpldm/bcd.h>
+ #include <libpldm/bios.h>
+diff --git a/tests/unit/dsp/bios_table.cpp b/tests/unit/dsp/bios_table.cpp
+index 2eb6f18..c7b5248 100644
+--- a/tests/unit/dsp/bios_table.cpp
++++ b/tests/unit/dsp/bios_table.cpp
+@@ -1,4 +1,4 @@
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <libpldm/base.h>
+ #include <libpldm/bios.h>
+ #include <libpldm/bios_table.h>
+diff --git a/tests/unit/dsp/firmware_update.cpp b/tests/unit/dsp/firmware_update.cpp
+index 15be48e..3a81db8 100644
+--- a/tests/unit/dsp/firmware_update.cpp
++++ b/tests/unit/dsp/firmware_update.cpp
+@@ -1,6 +1,6 @@
+ #include "msgbuf.hpp"
+ 
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <libpldm/api.h>
+ #include <libpldm/base.h>
+ #include <libpldm/firmware_update.h>
+diff --git a/tests/unit/dsp/fru.cpp b/tests/unit/dsp/fru.cpp
+index 277052b..7f55b50 100644
+--- a/tests/unit/dsp/fru.cpp
++++ b/tests/unit/dsp/fru.cpp
+@@ -1,4 +1,4 @@
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <libpldm/base.h>
+ #include <libpldm/fru.h>
+ 
+diff --git a/tests/unit/dsp/pdr.cpp b/tests/unit/dsp/pdr.cpp
+index b1f3d3f..c5d00cf 100644
+--- a/tests/unit/dsp/pdr.cpp
++++ b/tests/unit/dsp/pdr.cpp
+@@ -1,6 +1,6 @@
+ #include "msgbuf.hpp"
+ 
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <libpldm/api.h>
+ #include <libpldm/pdr.h>
+ #include <libpldm/platform.h>
+diff --git a/tests/unit/dsp/platform.cpp b/tests/unit/dsp/platform.cpp
+index 96a010e..d16015b 100644
+--- a/tests/unit/dsp/platform.cpp
++++ b/tests/unit/dsp/platform.cpp
+@@ -1,6 +1,6 @@
+ #include "msgbuf.hpp"
+ 
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <libpldm/api.h>
+ #include <libpldm/base.h>
+ #include <libpldm/entity.h>
+diff --git a/tests/unit/msgbuf.cpp b/tests/unit/msgbuf.cpp
+index fd36ba8..26aba02 100644
+--- a/tests/unit/msgbuf.cpp
++++ b/tests/unit/msgbuf.cpp
+@@ -1,4 +1,4 @@
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ 
+ #include <cfloat>
+ 
+diff --git a/tests/unit/msgbuf_generic.c b/tests/unit/msgbuf_generic.c
+index 9d57d80..fb5c90c 100644
+--- a/tests/unit/msgbuf_generic.c
++++ b/tests/unit/msgbuf_generic.c
+@@ -2,8 +2,8 @@
+ /* Test pldm_msgbuf_extract() separately because we can't do _Generic() in C++
+  * code, i.e. gtest */
+ 
+-#include <endian.h>
+ #include <float.h>
++#include <libpldm/byteorder.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ 
+diff --git a/tests/unit/oem/ibm/fileio.cpp b/tests/unit/oem/ibm/fileio.cpp
+index 16ef34e..a78e589 100644
+--- a/tests/unit/oem/ibm/fileio.cpp
++++ b/tests/unit/oem/ibm/fileio.cpp
+@@ -1,4 +1,4 @@
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <libpldm/base.h>
+ #include <libpldm/oem/ibm/file_io.h>
+ 
+diff --git a/tests/unit/oem/ibm/host.cpp b/tests/unit/oem/ibm/host.cpp
+index 628c123..add310f 100644
+--- a/tests/unit/oem/ibm/host.cpp
++++ b/tests/unit/oem/ibm/host.cpp
+@@ -1,4 +1,4 @@
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <libpldm/base.h>
+ #include <libpldm/oem/ibm/host.h>
+ 
+diff --git a/tests/unit/oem/meta/fileio.cpp b/tests/unit/oem/meta/fileio.cpp
+index 845f0da..d2b1eac 100644
+--- a/tests/unit/oem/meta/fileio.cpp
++++ b/tests/unit/oem/meta/fileio.cpp
+@@ -2,7 +2,7 @@
+ 
+ #include "msgbuf.hpp"
+ 
+-#include <endian.h>
++#include <libpldm/byteorder.h>
+ #include <libpldm/base.h>
+ #include <libpldm/oem/meta/file_io.h>
+ 
+diff --git a/include/libpldm/portable-endian.h b/include/libpldm/portable-endian.h
+new file mode 100644
+index 0000000..5916dc1
+--- /dev/null
++++ b/include/libpldm/portable-endian.h
+@@ -0,0 +1,48 @@
++/* SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later */
++#pragma once
++
++#include <stdint.h>
++
++#if defined(__APPLE__)
++#include <libkern/OSByteOrder.h>
++
++#define htole16(x) OSSwapHostToLittleInt16(x)
++#define htole32(x) OSSwapHostToLittleInt32(x)
++#define htole64(x) OSSwapHostToLittleInt64(x)
++#define le16toh(x) OSSwapLittleToHostInt16(x)
++#define le32toh(x) OSSwapLittleToHostInt32(x)
++#define le64toh(x) OSSwapLittleToHostInt64(x)
++#define htobe16(x) OSSwapHostToBigInt16(x)
++#define htobe32(x) OSSwapHostToBigInt32(x)
++#define htobe64(x) OSSwapHostToBigInt64(x)
++#define be16toh(x) OSSwapBigToHostInt16(x)
++#define be32toh(x) OSSwapBigToHostInt32(x)
++#define be64toh(x) OSSwapBigToHostInt64(x)
++#elif defined(_WIN32)
++#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
++#error Only little-endian Windows targets are supported
++#endif
++
++#define htole16(x) ((uint16_t)(x))
++#define htole32(x) ((uint32_t)(x))
++#define htole64(x) ((uint64_t)(x))
++#define le16toh(x) ((uint16_t)(x))
++#define le32toh(x) ((uint32_t)(x))
++#define le64toh(x) ((uint64_t)(x))
++#define htobe16(x) __builtin_bswap16((uint16_t)(x))
++#define htobe32(x) __builtin_bswap32((uint32_t)(x))
++#define htobe64(x) __builtin_bswap64((uint64_t)(x))
++#define be16toh(x) __builtin_bswap16((uint16_t)(x))
++#define be32toh(x) __builtin_bswap32((uint32_t)(x))
++#define be64toh(x) __builtin_bswap64((uint64_t)(x))
++#else
++#error This header is for Apple Clang and GNU-compatible Windows compilers
++#endif
++
++#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
++#define __LITTLE_ENDIAN_BITFIELD
++#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++#define __BIG_ENDIAN_BITFIELD
++#else
++#error Unsupported byte order
++#endif
+diff --git a/src/environ/string.h b/src/environ/string.h
+new file mode 100644
+index 0000000..d81f877
+--- /dev/null
++++ b/src/environ/string.h
+@@ -0,0 +1,30 @@
++/* SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later */
++#pragma once
++
++#include <stddef.h>
++#include <string.h>
++
++#ifdef _WIN32
++static inline const void *libpldm_memmem(const void *haystack, size_t length,
++					 const void *needle,
++					 size_t needle_length)
++{
++	const unsigned char *bytes = (const unsigned char *)haystack;
++	size_t offset;
++
++	if (!needle_length) {
++		return haystack;
++	}
++	if (needle_length > length) {
++		return NULL;
++	}
++	for (offset = 0; offset <= length - needle_length; offset++) {
++		if (!memcmp(bytes + offset, needle, needle_length)) {
++			return bytes + offset;
++		}
++	}
++	return NULL;
++}
++#else
++#define libpldm_memmem memmem
++#endif
