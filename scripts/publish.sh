@@ -22,7 +22,7 @@ check_trust() {
 
 validate_assets() {
     local file target
-    for target in windows-x86_64 macos-arm64 macos-x86_64; do
+    for target in linux-x86_64 windows-x86_64 macos-arm64 macos-x86_64; do
         file="$directory/libpldm-$identity-$target.tar.gz"
         [[ -s $file ]] || fail "Missing target: $target"
         # Read just JSON, never execute scripts supplied by a build artifact.
@@ -51,7 +51,7 @@ publish() {
             return
         fi
     fi
-    printf 'Unofficial downstream build of upstream development sources.\n\nBuild identity: %s\nAutomation revision: %s\nUpstream commit: %s\n\nAll three native targets passed tests and relocated-package smoke checks.\nSee build metadata for toolchain, baseline and ABI limitations.\n' \
+    printf 'Unofficial downstream build of upstream development sources.\n\nBuild identity: %s\nAutomation revision: %s\nUpstream commit: %s\n\nAll four native targets passed tests and relocated-package smoke checks.\nSee build metadata for toolchain, baseline and ABI limitations.\n' \
         "$identity" "$automation" "$(jq -r .upstream "$metadata")" > "$notes"
     draft=$(jq -r --arg id "$identity" --arg rev "$automation" '
         [.[] | select(.draft and .target_commitish == $rev)

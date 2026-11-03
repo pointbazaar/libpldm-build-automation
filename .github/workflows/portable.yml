@@ -68,6 +68,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - target: linux-x86_64
+            runner: ubuntu-latest
           - target: windows-x86_64
             runner: windows-2025
           - target: macos-arm64
@@ -100,6 +102,14 @@ jobs:
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-jq
+      - name: Install native Linux build dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends gcc-14 g++-14 cmake ninja-build pkgconf jq pipx
+          source config/recipe.env
+          pipx install --force "meson==$MESON_VERSION"
       - name: Install native macOS build dependencies
         if: runner.os == 'macOS'
         shell: bash
@@ -121,6 +131,14 @@ jobs:
         shell: bash
         env:
           BUILD_TARGET: ${{ matrix.target }}
+        run: bash scripts/build.sh "$BUILD_TARGET" "$RUNNER_TEMP/prepared" "$RUNNER_TEMP/native"
+      - name: Build, test and package on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          CC: gcc-14
+          CXX: g++-14
         run: bash scripts/build.sh "$BUILD_TARGET" "$RUNNER_TEMP/prepared" "$RUNNER_TEMP/native"
       - name: Transfer tested package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
