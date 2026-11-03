@@ -2,3 +2,5 @@
 0002-respect-disabled-transport.patch
 0003-install-portable-pd.patch
 0004-darwin-char16.patch
+0005-cpp-header-linkage.patch
+0006-polyfill-new-header.patch

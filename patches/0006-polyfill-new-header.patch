@@ -1,0 +1,21 @@
+From: libpldm portable build maintainers
+Subject: [PATCH] polyfills: Include the header declaring std::launder
+
+Developed against upstream be4f63e36408921e76d868593176377de84e945e,
+after patches 1-5 in this series.
+
+The lifetime polyfill uses std::launder, declared by <new>. Do not rely
+on <memory> including it transitively: libc++ configurations without
+that incidental include fail when building the base unit tests.
+
+diff --git a/polyfills/start_lifetime_as.hpp b/polyfills/start_lifetime_as.hpp
+--- a/polyfills/start_lifetime_as.hpp
++++ b/polyfills/start_lifetime_as.hpp
+@@ -3,6 +3,7 @@
+ #pragma once
+ 
+ #include <memory>
++#include <new>
+ 
+ /*
+  * C++23 [obj.lifetime] `std::start_lifetime_as` is not yet implemented in

@@ -5,16 +5,15 @@ This is **not an upstream release or a source fork**. Only automation, small
 compatibility patches and tests live here; CI fetches upstream `main` once and
 all targets consume the same patched-source archive and automation commit.
 
-**Validation status:** the Linux validation build and all 22 applicable
-upstream test executables have been exercised locally, along with installed C
-and C++ consumers and `pd`. MinGW GCC 16.2 cross-compilation covers both libraries,
-`pd`, and the applicable upstream test executables. Successful native
-Windows/macOS builds and GitHub publication remain unverified; the first run's
-logs confirm that preparation and the real keepalive job completed successfully.
-The first dispatched run failed before Windows compilation (cross-platform
-recipe digest formatting) and during macOS compilation (missing `<uchar.h>`).
-Both failures now have fixes and regression checks; the native jobs must be
-rerun. Configured targets are not a claim that those native runs already passed.
+**Validation status:** the native Windows job now passes its upstream tests and
+installed-package smoke checks and produces a package including `pd.exe`.
+Linux validation also covers all 22 applicable upstream test executables and
+installed C/C++ consumers. Both macOS architectures compile the libraries,
+but the latest run failed in the responder test because libc++ templates
+were included under C linkage. A compatibility patch and a C-header-first
+consumer check address that failure; successful native macOS runs and GitHub
+release publication still require verification. Preparation and the real
+keepalive job have completed successfully.
 
 ## Downloads and targets
 
@@ -180,6 +179,9 @@ Then it archives/extracts the installed package,
 hides the original source/build/install paths, builds **external C and C++
 consumers using only installed pkg-config metadata**, and tests wire struct
 sizes/offsets, exact header bytes, little/big-endian conversions and known CRC32.
+A separate C++ consumer includes the public C header first, inside an outer
+`extern "C"` block, and calls a C library entry point. This catches libc++
+template linkage problems that pre-including standard headers would mask.
 `pd` and the C++ parser read a deterministic FR02H fixture containing a Windows
 text-mode EOF byte; normalized tool output is compared with `tests/pd.expected`.
 Empty input must fail. There are no correctness-critical caches.

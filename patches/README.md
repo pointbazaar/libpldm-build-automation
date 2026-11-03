@@ -24,6 +24,16 @@ developed against upstream `main` at
    conversion functions are reimplemented. Native tests check the two-byte
    type, alignment and a surrogate pair; additional C/C++ probes explicitly
    make `<uchar.h>` unavailable to exercise the fallback on every host.
+5. **C++ header linkage:** `pldm_types.h` can be reached inside `extern "C"`
+   from `base.h` and other public C headers. Its C++ standard includes now
+   explicitly use C++ linkage, so libc++ templates compile even when these
+   are the first headers included. C API declarations retain C linkage; no
+   wire types or ABI are changed. The upstream responder test remains enabled,
+   and an installed-package C++ consumer includes the public C header first
+   inside an outer C linkage block and calls `pack_pldm_header()`.
+6. **Lifetime polyfill includes:** include `<new>` explicitly for
+   `std::launder`. libc++ need not expose it via `<memory>` transitively.
+   The existing base unit tests exercise the unchanged lifetime polyfill.
 
 No upstream source is stored here. The full patched source and pinned test
 dependency are release assets. Patch application uses `git apply --check`

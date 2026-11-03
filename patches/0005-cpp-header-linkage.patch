@@ -1,0 +1,31 @@
+From: libpldm portable build maintainers
+Subject: [PATCH] headers: Preserve C++ linkage for standard includes
+
+Developed against upstream be4f63e36408921e76d868593176377de84e945e,
+after patches 1-4 in this series.
+
+Public headers such as base.h include pldm_types.h inside extern "C".
+When cstddef is first included there, libc++'s templates inherit C
+linkage and fail to compile. The responder unit test exposes this on
+both macOS architectures because it includes responder.c before any
+C++ standard headers.
+
+Give the C++ standard includes their own language-linkage scope. This
+also handles consumers wrapping a public C header in extern "C". The
+enclosing C linkage is restored afterwards, preserving C entry points
+and wire types. Keep the responder test enabled and unchanged.
+
+diff --git a/include/libpldm/pldm_types.h b/include/libpldm/pldm_types.h
+--- a/include/libpldm/pldm_types.h
++++ b/include/libpldm/pldm_types.h
+@@ -2,8 +2,10 @@
+ #pragma once
+ 
+ #ifdef __cplusplus
++extern "C++" {
+ #include <cstdint>
+ #include <cstddef>
++}
+ #else
+ #include <stdint.h>
+ #include <stddef.h>
