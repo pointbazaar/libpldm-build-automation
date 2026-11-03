@@ -1,0 +1,27 @@
+From: libpldm portable build maintainers
+Subject: [PATCH] tests: Append downstream device record byte by byte
+
+Developed against upstream be4f63e36408921e76d868593176377de84e945e,
+after patches 1-6 in this series.
+
+Ubuntu GCC 14 diagnoses the vector range insertion in makePkgV1_1_0()
+as a stringop-overflow at -O3, blocking the warnings-as-errors build.
+Append the same record bytes individually to avoid that optimized
+range-insertion path. Keep all package-parser tests and warning checks
+enabled; neither the fixture contents nor production code change.
+
+diff --git a/tests/unit/bindings/cpp/firmware-update-test-v1-1-0.cpp b/tests/unit/bindings/cpp/firmware-update-test-v1-1-0.cpp
+--- a/tests/unit/bindings/cpp/firmware-update-test-v1-1-0.cpp
++++ b/tests/unit/bindings/cpp/firmware-update-test-v1-1-0.cpp
+@@ -100,7 +100,10 @@
+ 
+     // DownstreamDeviceIDRecordCount
+     pkg.push_back(0x01);
+-    pkg.insert(pkg.end(), ddevidarea.begin(), ddevidarea.end());
++    for (const auto byte : ddevidarea)
++    {
++        pkg.push_back(byte);
++    }
+ 
+     const auto clos = appendComponentImageInfoArea1(pkg);
+ 

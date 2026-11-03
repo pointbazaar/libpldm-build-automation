@@ -22,6 +22,7 @@ upstream=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 digest=$(bash "$ROOT/scripts/identity.sh")
 identity="$upstream-$digest"
 assets=$(jq -cn --arg id "$identity" '[
+    "libpldm-\($id)-linux-x86_64.tar.gz",
     "libpldm-\($id)-windows-x86_64.tar.gz", "libpldm-\($id)-macos-arm64.tar.gz",
     "libpldm-\($id)-macos-x86_64.tar.gz", "libpldm-\($id)-source.tar.gz",
     "libpldm-\($id)-recipe.tar.gz", "build.json", "SHA256SUMS"]')
@@ -40,7 +41,8 @@ test_release_validation() {
     [[ $(complete_release "$MOCK_RELEASES" "$identity" "$assets") == previous-success ]]
     for filter in '.[0].draft = true' '.[0].prerelease = true' \
         '.[0].assets |= .[1:]' '.[0].assets[0].size = 0' \
-        '.[0].assets[0].state = "new"' '.[0].body = "wrong identity"'; do
+        '.[0].assets[0].state = "new"' '.[0].body = "wrong identity"' \
+        '.[0].assets |= map(select(.name | endswith("-linux-x86_64.tar.gz") | not))'; do
         release_fixture
         jq "$filter" "$MOCK_RELEASES" > "$temporary/incomplete.json"
         if complete_release "$temporary/incomplete.json" "$identity" "$assets"; then
@@ -174,7 +176,7 @@ test_source_archive() {
 make_test_assets() {
     local directory=$1 target name
     cp "$temporary/prepared/build.json" "$directory/"
-    for target in windows-x86_64 macos-arm64 macos-x86_64; do
+    for target in linux-x86_64 windows-x86_64 macos-arm64 macos-x86_64; do
         name="libpldm-$identity-$target"
         mkdir -p "$temporary/package/$name/share/libpldm/build"
         cp "$directory/build.json" "$temporary/package/$name/share/libpldm/build/identity.json"
@@ -213,7 +215,7 @@ test_publication() {
     FORCE_REBUILD=true bash "$ROOT/scripts/publish.sh" "$directory"
     if grep -q '^release create' "$MOCK_LOG"; then fail 'Draft recovery created a second release'; fi
     grep -q 'release edit interrupted-draft --draft=false --latest' "$MOCK_LOG"
-    mv "$directory/libpldm-$identity-macos-arm64.tar.gz" "$temporary/withheld.tar.gz"
+    mv "$directory/libpldm-$identity-linux-x86_64.tar.gz" "$temporary/withheld.tar.gz"
     : > "$MOCK_LOG"
     if bash "$ROOT/scripts/publish.sh" "$directory" > "$temporary/expected-missing-target.log" 2>&1; then
         fail 'Missing required target accepted'

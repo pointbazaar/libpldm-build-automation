@@ -34,12 +34,16 @@ developed against upstream `main` at
 6. **Lifetime polyfill includes:** include `<new>` explicitly for
    `std::launder`. libc++ need not expose it via `<memory>` transitively.
    The existing base unit tests exercise the unchanged lifetime polyfill.
+7. **GCC 14 test fixture:** append downstream-device record bytes individually
+   instead of using a vector range insertion that triggers GCC 14's optimized
+   `stringop-overflow` diagnostic. Fixture contents and production code remain
+   unchanged; warnings-as-errors and all package-parser tests stay enabled.
 
 No upstream source is stored here. The full patched source and pinned test
 dependency are release assets. Patch application uses `git apply --check`
 then `git apply`, with neither three-way fallback nor an already-applied
 exception. When upstream incorporates a change, remove/refresh that patch
-deliberately, update `series` and this document, and rerun all three native
+deliberately, update `series` and this document, and rerun all four native
 targets. Never delete a failing patch merely to turn a build green.
 
 Shared libraries are deliberately not shipped. Consequently DLL exports/import

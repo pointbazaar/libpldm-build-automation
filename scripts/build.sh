@@ -14,6 +14,12 @@ prefix="$work/$package"
 
 configure_target() {
     case "$TARGET" in
+        linux-x86_64)
+            [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || fail 'Use a native Linux x86-64 host'
+            export CC=${CC:-gcc} CXX=${CXX:-g++}
+            (( $("$CC" -dumpversion | cut -d. -f1) >= 14 )) || fail 'GCC 14+ is required'
+            BASELINE="GNU/Linux x86-64; $(getconf GNU_LIBC_VERSION); GCC/libstdc++"
+            ;;
         windows-x86_64)
             [[ ${MSYSTEM:-} == UCRT64 && $(uname -m) == x86_64 ]] || fail 'Use native MSYS2 UCRT64 x86-64'
             export CC=gcc CXX=g++
@@ -117,6 +123,14 @@ record_metadata() {
         xcodebuild -version >> "$metadata/macos.txt"
         xcrun --show-sdk-version >> "$metadata/macos.txt"
         brew list --versions > "$metadata/packages.txt"
+    fi
+    if [[ $TARGET == linux-x86_64 ]]; then
+        cp /etc/os-release "$metadata/os-release"
+        getconf GNU_LIBC_VERSION > "$metadata/glibc.txt"
+        ldd "$prefix/bin/pd" > "$metadata/pd-runtime.txt"
+        if command -v dpkg-query >/dev/null; then
+            dpkg-query -W > "$metadata/packages.txt"
+        fi
     fi
 }
 

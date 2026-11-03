@@ -4,3 +4,4 @@
 0004-darwin-char16.patch
 0005-cpp-header-linkage.patch
 0006-polyfill-new-header.patch
+0007-gcc14-test-package-append.patch

@@ -17,6 +17,7 @@ make_metadata() {
     identity="$commit-$digest"
     tag="build-$identity-r${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
     assets=$(jq -cn --arg id "$identity" '[
+        "libpldm-\($id)-linux-x86_64.tar.gz",
         "libpldm-\($id)-windows-x86_64.tar.gz",
         "libpldm-\($id)-macos-arm64.tar.gz",
         "libpldm-\($id)-macos-x86_64.tar.gz",

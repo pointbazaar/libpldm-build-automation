@@ -1,18 +1,16 @@
 # Unofficial portable libpldm builds
 
-Native Windows/macOS build automation for [openbmc/libpldm](https://github.com/openbmc/libpldm).
+Native Linux/Windows/macOS build automation for [openbmc/libpldm](https://github.com/openbmc/libpldm).
 This is **not an upstream release or a source fork**. Only automation, small
 compatibility patches and tests live here; CI fetches upstream `main` once and
 all targets consume the same patched-source archive and automation commit.
 
-**Validation status:** the native Windows job now passes its upstream tests and
-installed-package smoke checks and produces a package including `pd.exe`.
-Linux validation also covers all 22 applicable upstream test executables and
-installed C/C++ consumers. Both macOS architectures compile the libraries,
-but the latest run failed in the responder test because libc++ templates
-were included under C linkage. A compatibility patch and a C-header-first
-consumer check address that failure; successful native macOS runs and GitHub
-release publication still require verification. Preparation and the real
+**Validation status:** native Windows and both macOS jobs have completed
+successfully, including installed-package checks. Linux validation locally and
+in an Ubuntu 24.04/GCC 14 container covers all 22 applicable upstream test
+executables, installed C/C++ consumers and `pd`.
+The new `ubuntu-latest` Linux matrix job still needs its first hosted run;
+GitHub release publication also remains unverified. Preparation and the real
 keepalive job have completed successfully.
 
 ## Downloads and targets
@@ -26,6 +24,7 @@ may return 404 before the first release. Fork maintainers must update these link
 
 | Archive target | Explicit native runner | Toolchain/runtime | Intended minimum OS |
 | --- | --- | --- | --- |
+| `linux-x86_64` | `ubuntu-latest` (x86-64) | GCC/G++ 14, glibc and libstdc++ | Resolved Ubuntu runner image; see packaged metadata |
 | `windows-x86_64` | `windows-2025` | MSYS2 UCRT64 MinGW-w64 GCC (require GCC 14+), UCRT | Windows 10 1809+ x86-64 |
 | `macos-arm64` | `macos-15` (arm64) | Xcode 16.4 Apple Clang 17, system libc++ | macOS 15.0 arm64 |
 | `macos-x86_64` | `macos-15-intel` | Xcode 16.4 Apple Clang 17, system libc++ | macOS 15.0 Intel |
@@ -33,11 +32,16 @@ may return 404 before the first release. Fork maintainers must update these link
 OS baselines are conservative recipe targets, **not separately tested on the
 oldest OS versions**. Native tests run on the resolved runner image. Apple builds
 set `MACOSX_DEPLOYMENT_TARGET=15.0`; Windows uses the modern UCRT64 baseline.
+Linux uses the current `ubuntu-latest` image, not a fixed minimum distribution.
+Its glibc version, distribution, installed packages and `pd` runtime dependencies
+are recorded in each package; compatibility with older distributions is not
+promised.
 The source needs GNU-compatible C17 extensions and C++23 `std::expected`, ranges,
 and span. MSVC is not supported. Hosted images and MSYS2 packages change over
 time; every archive records actual compiler, dependency, SDK and image versions.
-macOS installs Meson 1.9.1; Windows uses the recorded MSYS2 Meson package (upstream
-requires >=1.6). The recipe revision can request a refresh after external changes.
+Linux/macOS install Meson 1.9.1; Windows uses the recorded MSYS2 Meson package
+(upstream requires >=1.6). The recipe revision can request a refresh after
+external changes.
 
 ### Included components and ABI limitations
 
@@ -48,12 +52,16 @@ requires >=1.6). The recipe revision can request a refresh after external change
 * Build identity, target/compiler/dependency metadata, recipe configuration and
   licence notices under `share/libpldm/build/`.
 
-No libpldm DLLs/dylibs or import libraries are shipped. The Windows executable
-links compiler runtimes statically (`-static`); it needs Windows/UCRT, not an
-MSYS2 installation. CI runs it and external consumers without the UCRT64 DLL
+No libpldm shared libraries or import libraries are shipped. The Windows
+executable links compiler runtimes statically (`-static`); it needs Windows/UCRT,
+not an MSYS2 installation. CI runs it and external consumers without the UCRT64 DLL
 directory on PATH. Compiler/runtime notices are included. Apple binaries use
-the system runtime. No signing, notarization, installers or package-manager
-integration is provided; macOS quarantine policy may require local approval.
+the system runtime. Linux `pd` is dynamically linked to system libraries, including
+glibc; the static libpldm archives do not bundle glibc or the C++ runtime. Linux
+consumers need compatible glibc and GCC/libstdc++ versions, and `pd` needs the
+libraries recorded in `share/libpldm/build/pd-runtime.txt`.
+No signing, notarization, installers or package-manager integration is provided;
+macOS quarantine policy may require local approval.
 
 Static libraries do **not** promise cross-compiler or cross-release ABI stability.
 Use the same architecture, runtime, compatible compiler and C++ standard library
@@ -62,9 +70,9 @@ libstdc++. All upstream ABI classes, including testing APIs, are enabled. Rebuil
 consumers when updating. Windows consumers must retain `-mno-ms-bitfields` for
 PLDM wire layout; `libpldm.pc` supplies it, including through `libpldm++.pc`.
 
-**Excluded deliberately:** `-Dtransport=false` removes Linux AF_MCTP, Unix demux
-transport, requester/instance-ID storage APIs and their tests. The installed
-upstream headers may still declare these unavailable APIs: do not link against
+**Excluded deliberately on all four targets:** `-Dtransport=false` removes Linux
+AF_MCTP, Unix demux transport, requester/instance-ID storage APIs and their tests.
+The installed upstream headers may still declare these unavailable APIs: do not link against
 them. There is no replacement transport. This upstream revision has only one
 Meson tool, `pd`; `pldmtool` is not supplied by this source tree. Documentation,
 Linux ABI-dump comparisons and fuzz campaigns are not part of binary builds.
@@ -134,11 +142,11 @@ metadata. Linux/macOS omit that option: older Unix jq (including Ubuntu's 1.7.1)
 rejects `--binary`.
 
 Only a published non-draft, non-prerelease with the matching identity and **all
-seven expected, nonempty uploaded assets** skips a build. Failures never record
+eight expected, nonempty uploaded assets** skips a build. Failures never record
 completion. API/auth errors in release enumeration fail preparation rather than
 pretending the identity is complete. A retry or the next daily run tries again.
 
-After all three native jobs succeed, publication validates target identities,
+After all four native jobs succeed, publication validates target identities,
 creates `SHA256SUMS`, uploads a **draft**, downloads it again to verify checksums
 and exact bytes/asset names, and only then publishes it with `--latest`. These
 are ordinary releases for a stable `/releases/latest` link, but their names and
@@ -146,7 +154,7 @@ notes explicitly identify **unofficial upstream development builds**. Release
 versions are unique, not rolling replacements. Enable GitHub's release
 immutability setting for server-enforced protection of published assets/tags.
 
-Each release has three architecture archives, a patched source archive, a recipe
+Each release has four architecture archives, a patched source archive, a recipe
 archive (patches/scripts/tests/config/workflow), `build.json` and `SHA256SUMS`.
 The source archive includes the pinned GoogleTest source and licence, with `.git`
 directories excluded. Internal file symlinks (including upstream's
@@ -186,17 +194,21 @@ template linkage problems that pre-including standard headers would mask.
 text-mode EOF byte; normalized tool output is compared with `tests/pd.expected`.
 Empty input must fail. There are no correctness-critical caches.
 
-For local Linux validation (not a fourth release target), install Bash, Git,
-tar, jq, C/C++23 compilers, Meson >=1.6, Ninja, CMake and pkg-config, then use a
-**new temporary directory**:
+For the Linux x86-64 release target, install Bash, Git, tar, jq, GCC/G++ 14 or
+newer, Meson 1.9.1, Ninja, CMake and pkg-config, then use a **new temporary
+directory**:
 
 ```sh
 bash tests/automation.sh
 bash scripts/prepare.sh resolve
 # Copy the reported exact upstream SHA into the following command:
 bash scripts/prepare.sh prepare UPSTREAM_SHA /tmp/opencode/prepared
-bash scripts/build.sh linux-local /tmp/opencode/prepared /tmp/opencode/native
+CC=gcc-14 CXX=g++-14 bash scripts/build.sh linux-x86_64 /tmp/opencode/prepared /tmp/opencode/native
 ```
+
+The workflow installs these dependencies on `ubuntu-latest`. For local validation
+with other Linux architectures/toolchains, `linux-local` remains available but
+is not published. Use fresh prepared/work directories for each build.
 
 On native Windows, run `scripts/build.sh windows-x86_64 ...` in MSYS2 UCRT64
 with the packages listed in the workflow. On macOS select Xcode 16.4 and use the
