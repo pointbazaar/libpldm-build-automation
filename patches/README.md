@@ -18,6 +18,12 @@ developed against upstream `main` at
    All remaining upstream unit tests, including C++ parser tests, stay enabled.
 3. **Offline tool packaging:** install `pd`, use portable diagnostics, and
    preserve binary standard input on Windows.
+4. **Darwin UTF-16 type:** Xcode 16.4 has no `<uchar.h>`. An installed
+   `libpldm/char16.h` uses Clang's UTF-16 literal type in Darwin C and the
+   native C++ keyword; other C targets retain the standard header. No libc
+   conversion functions are reimplemented. Native tests check the two-byte
+   type, alignment and a surrogate pair; additional C/C++ probes explicitly
+   make `<uchar.h>` unavailable to exercise the fallback on every host.
 
 No upstream source is stored here. The full patched source and pinned test
 dependency are release assets. Patch application uses `git apply --check`

@@ -36,10 +36,13 @@ configure_target() {
 }
 
 build_and_install() {
+    local digest expected_digest
     stage 'Verify and extract prepared source'
     (cd "$input" && sha256 -c preparation.sha256)
-    [[ $(bash "$ROOT/scripts/identity.sh") == "$(jq -r .digest "$input/build.json")" ]] \
-        || fail 'Recipe digest does not match preparation'
+    digest=$(bash "$ROOT/scripts/identity.sh")
+    expected_digest=$(jq -r .digest "$input/build.json")
+    [[ $digest == "$expected_digest" ]] \
+        || fail "Recipe digest mismatch: expected $expected_digest, got $digest"
     tar -xzf "$input/libpldm-$identity-source.tar.gz" -C "$work"
     cmp "$work/libpldm/UPSTREAM-COMMIT" <(jq -r .upstream "$input/build.json")
     stage 'Configure native Meson build'
@@ -52,12 +55,12 @@ build_and_install() {
     meson compile -C "$work/build" -j 3
     stage 'Run applicable upstream tests'
     meson test -C "$work/build" --print-errorlogs --no-rebuild
-    test_substring_fallback
+    test_portability_helpers
     stage 'Install package'
     meson install -C "$work/build" --no-rebuild --skip-subprojects
 }
 
-test_substring_fallback() {
+test_portability_helpers() {
     local flags=(-O2)
     if [[ $TARGET == windows-x86_64 ]]; then flags+=(-static); fi
     stage 'Check Windows substring fallback boundaries in C and C++'
@@ -67,6 +70,15 @@ test_substring_fallback() {
         -x c++ "$ROOT/tests/fallback.c" -o "$work/fallback-cpp"
     "$work/fallback-c"
     "$work/fallback-cpp"
+    stage 'Check Darwin UTF-16 types in C and C++ without uchar.h'
+    "${CC:-cc}" -std=c17 -Wall -Wextra -Werror "${flags[@]}" -D__APPLE__ \
+        -I"$ROOT/tests/no-uchar" -I"$work/libpldm/include" \
+        "$ROOT/tests/char16.c" -o "$work/char16-c"
+    "${CXX:-c++}" -std=c++23 -Wall -Wextra -Werror "${flags[@]}" -D__APPLE__ \
+        -I"$ROOT/tests/no-uchar" -I"$work/libpldm/include" \
+        -x c++ "$ROOT/tests/char16.c" -o "$work/char16-cpp"
+    "$work/char16-c"
+    "$work/char16-cpp"
 }
 
 record_metadata() {

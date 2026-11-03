@@ -15,6 +15,7 @@ meson compile -C "$work/build" -j 3
 
 run_checks() {
     "$work/build/consumer-c"
+    "$work/build/consumer-char16"
     "$work/build/fixture" "$work/fixture.bin"
     "$work/build/consumer-cpp" "$work/fixture.bin"
     "$prefix/bin/pd" < "$work/fixture.bin" > "$work/pd.txt"

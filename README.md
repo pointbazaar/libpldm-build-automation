@@ -5,12 +5,16 @@ This is **not an upstream release or a source fork**. Only automation, small
 compatibility patches and tests live here; CI fetches upstream `main` once and
 all targets consume the same patched-source archive and automation commit.
 
-**Initial validation status:** the Linux validation build and all 22 applicable
+**Validation status:** the Linux validation build and all 22 applicable
 upstream test executables have been exercised locally, along with installed C
 and C++ consumers and `pd`. MinGW GCC 16.2 cross-compilation covers both libraries,
-`pd`, and the applicable upstream test executables. Native Windows/macOS runs,
-GitHub publication and the real keepalive API still require a first Actions run.
-Configured targets below are not a claim that those native runs already passed.
+`pd`, and the applicable upstream test executables. Successful native
+Windows/macOS builds and GitHub publication remain unverified; the first run's
+logs confirm that preparation and the real keepalive job completed successfully.
+The first dispatched run failed before Windows compilation (cross-platform
+recipe digest formatting) and during macOS compilation (missing `<uchar.h>`).
+Both failures now have fixes and regression checks; the native jobs must be
+rerun. Configured targets are not a claim that those native runs already passed.
 
 ## Downloads and targets
 
@@ -90,10 +94,13 @@ consumer's runtime. No shared-library search paths or install names are needed.
    or fork, open **Actions** and enable workflows; approve first-time fork PR
    runs if prompted. Allow the SHA-pinned actions in repository/organization
    Actions policy. No PAT, upstream write access or external scheduler is needed.
-2. Open **Portable builds → Run workflow**, select the default branch and run.
-   The daily schedule is `17 4 * * *` UTC. GitHub schedules are best effort and
-   can be delayed or dropped. Non-default-branch manual runs and pull requests
-   build/test only; they cannot publish releases or write sync status.
+2. Every **branch push** automatically builds/tests the workflow revision on that
+   branch; tag pushes do not trigger it. Manual execution remains available via
+   **Portable builds → Run workflow**. The daily schedule is `17 4 * * *` UTC;
+   GitHub schedules are best effort and can be delayed or dropped. Only scheduled
+   or manual default-branch runs can publish releases or write sync status.
+   Pushes, pull requests and other-branch manual runs are read-only build/test
+   runs and never skip just because a complete release already exists.
 3. Select **force_rebuild** to bypass the complete-identity skip. The new tag
    includes the workflow run ID and attempt, so it never replaces a successful
    release. On reruns, prefer rerunning **all jobs**, not only failed jobs,
@@ -110,13 +117,22 @@ the identity is skipped (provided upstream resolution succeeded).
 
 ## Identity, publication and recovery
 
-A build identity is the full upstream SHA plus a SHA-256 digest of filenames and
-contents in `patches/`, `scripts/`, `config/`, `tests/`, and `.github/workflows/`
+A build identity is the full upstream SHA plus a SHA-256 digest of `.gitattributes`
+and filenames and contents in `patches/`, `scripts/`, `config/`, `tests/`, and
+`.github/workflows/`
 (excluding Markdown). This includes the target matrix, dependency pins and action
 SHAs. It deliberately excludes README/docs, the sync-status file and automation
 commit ID, so a monthly heartbeat does not force a rebuild. The exact automation
 commit is still recorded in metadata and is the release tag's target. Changing
 unrelated documentation alone can correctly reuse an existing complete identity.
+Checksum records use explicit binary input and a canonical filename format,
+not the platform's default checksum text/binary marker. `.gitattributes` keeps
+recipe checkouts LF even when Git on Windows defaults to CRLF. Digest checks
+remain strict; a mismatch reports both the prepared and locally computed hashes.
+The shared jq helper forces binary output only under MSYS2/Cygwin, preventing
+native `jq.exe` from adding carriage returns to identifiers, filenames and
+metadata. Linux/macOS omit that option: older Unix jq (including Ubuntu's 1.7.1)
+rejects `--binary`.
 
 Only a published non-draft, non-prerelease with the matching identity and **all
 seven expected, nonempty uploaded assets** skips a build. Failures never record
@@ -134,7 +150,12 @@ immutability setting for server-enforced protection of published assets/tags.
 Each release has three architecture archives, a patched source archive, a recipe
 archive (patches/scripts/tests/config/workflow), `build.json` and `SHA256SUMS`.
 The source archive includes the pinned GoogleTest source and licence, with `.git`
-directories excluded. GitHub's automatic source links contain **this automation
+directories excluded. Internal file symlinks (including upstream's
+`scripts/run-ci -> pre-submit`) are stored as regular-file copies with their
+contents and permissions preserved. This avoids MSYS2's forward-symlink
+extraction failure and does not require Windows symlink privileges. Broken,
+out-of-tree, directory or Git-metadata symlink targets fail preparation rather
+than being silently omitted. GitHub's automatic source links contain **this automation
 repository**, not patched libpldm; use the explicit `-source.tar.gz` asset.
 
 Failed uploads remain drafts and do not move the successful download pointer.
@@ -152,7 +173,10 @@ to repair an incomplete set; fix the recipe and publish a new revision.
 Each target runs all applicable upstream unit tests with assertions enabled,
 including C++ parser and UTF-16 msgbuf tests. The Windows bounded substring
 fallback is also checked explicitly in C and C++ for empty/truncated/boundary
-inputs on every host. Then it archives/extracts the installed package,
+inputs on every host. Darwin's UTF-16 type fallback is compiled in C and C++
+with `<uchar.h>` deliberately unavailable, checking size, alignment and surrogate
+pairs; the installed C consumer also checks the public UTF-16 type's wire size.
+Then it archives/extracts the installed package,
 hides the original source/build/install paths, builds **external C and C++
 consumers using only installed pkg-config metadata**, and tests wire struct
 sizes/offsets, exact header bytes, little/big-endian conversions and known CRC32.
@@ -185,6 +209,11 @@ recorded revision when reproducing CI inputs.
 Offline automation tests mock GitHub (no publication/status writes) and cover
 complete-only skips, invalid assets, recipe digest scope, forced revisions,
 draft recovery, upload failure, incomplete targets and monthly status updates.
+They also compare Unix/MSYS2 checksum formatting, simulate native jq.exe CRLF
+output and Unix jq rejecting `--binary`, and check Windows CRLF checkout defaults
+without commits. Push publication/status writes must be rejected before API calls.
+Source-archive checks cover forward symlinks, executable permissions, metadata
+exclusion and rejection of unsafe link targets.
 Use `shellcheck -x scripts/*.sh tests/*.sh` and `actionlint` for static checks.
 Format changed Meson files with `meson format -i` and C/C++ with `clang-format`.
 
@@ -236,3 +265,4 @@ were checked against current documentation during implementation:
 * [gh release create / immutable releases](https://cli.github.com/manual/gh_release_create)
 * [Actions limits and storage](https://docs.github.com/en/actions/reference/limits)
 * [Download Actions artifacts](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)
+* [jq binary output for native Windows executables](https://jqlang.org/manual/#invoking-jq)

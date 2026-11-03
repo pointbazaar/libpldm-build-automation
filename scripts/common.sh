@@ -38,6 +38,15 @@ sha256() {
     fi
 }
 
+jq() {
+    # Native jq.exe otherwise appends CR to shell-captured values on Windows.
+    # Older Unix jq versions reject --binary rather than ignoring it.
+    case $(uname -s) in
+        MINGW*|MSYS*|CYGWIN*) command jq --binary "$@" ;;
+        *) command jq "$@" ;;
+    esac
+}
+
 output() {
     echo "$1=$2"
     if [[ -n ${GITHUB_OUTPUT:-} ]]; then

@@ -12,6 +12,7 @@
 _Static_assert(sizeof(struct pldm_msg_hdr) == 3, "PLDM header wire layout");
 _Static_assert(sizeof(struct pldm_pdr_hdr) == 10, "PDR header wire layout");
 _Static_assert(offsetof(struct pldm_pdr_hdr, length) == 8, "PDR length offset");
+_Static_assert(sizeof(pldm_utf16be) == 2, "UTF-16 code unit wire layout");
 
 static int check_endian(void) {
   const unsigned char little[] = {0xef, 0xcd, 0xab, 0x89};

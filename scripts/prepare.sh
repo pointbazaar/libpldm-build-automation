@@ -51,10 +51,10 @@ prepare() {
     output skip false
     bash "$ROOT/scripts/source.sh" "$commit" "$destination/libpldm"
     stage 'Archive reproducible source and recipe'
-    tar --exclude=.git -czf "$destination/libpldm-$identity-source.tar.gz" \
-        -C "$destination" libpldm
+    bash "$ROOT/scripts/archive-source.sh" "$destination/libpldm" \
+        "$destination/libpldm-$identity-source.tar.gz"
     tar -czf "$destination/libpldm-$identity-recipe.tar.gz" -C "$ROOT" \
-        patches scripts config tests .github README.md LICENSE
+        patches scripts config tests .github .gitattributes README.md LICENSE
     (cd "$destination" && sha256 libpldm-*.tar.gz build.json > preparation.sha256)
 }
 

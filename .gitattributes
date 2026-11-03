@@ -1,0 +1,2 @@
+# Recipe bytes must be identical on Linux, macOS and Windows checkouts.
+* text=auto eol=lf
